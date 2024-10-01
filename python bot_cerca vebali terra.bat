@@ -1,0 +1,1 @@
+python bot_cerca vebali terra.py
