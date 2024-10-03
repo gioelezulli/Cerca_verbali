@@ -1,10 +1,9 @@
-import os
 import glob
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import tomllib
 import os
-
+from nc_py_api import NextcloudApp
 
 def load_config():
     # Definisce il percorso del file di configurazione
@@ -24,6 +23,11 @@ TELEGRAM_BOT_TOKEN = config['telegram']['bot_token']
 PDF_DIRECTORIES = config['directories']['pdf_directories']
 AUTHORIZED_USERS = config['authorization']['authorized_users']
 
+# Credenziali Nextcloud
+NEXTCLOUD_URL = config['nextcloud']['url']
+NEXTCLOUD_USERNAME = config['nextcloud']['username']
+NEXTCLOUD_PASSWORD = config['nextcloud']['password']
+NEXTCLOUD_FOLDER = config['nextcloud']['folder']
 
 # Funzione per controllare se l'utente è autorizzato
 def is_authorized(user_id):
@@ -40,16 +44,38 @@ async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text("Ciao! Inviami il nome del file PDF che stai cercando.")
 
 
+# Funzione per connettersi a Nextcloud
+def connect_to_nextcloud():
+    return NextcloudApp(base_url=NEXTCLOUD_URL, user=NEXTCLOUD_USERNAME, password=NEXTCLOUD_PASSWORD)
+
+
+# Funzione per cercare e scaricare file PDF da Nextcloud
 def find_pdf(pdf_name):
-    # Cerca il file in tutte le directory specificate
+    local_directory = os.path.join(os.path.expanduser("~"), "Desktop", "PDF_Downloads")
+
+    # Creare la cartella sul Desktop se non esiste
+    os.makedirs(local_directory, exist_ok=True)
+
+    # Cerca il file in tutte le directory locali specificate
     for directory in PDF_DIRECTORIES:
-        # Cerca file PDF che contengono il nome cercato, ignorando maiuscole/minuscole
         pattern = os.path.join(directory, '**', f"*{pdf_name}*.pdf")
-        found_files = glob.glob(pattern, recursive=True)  # Usa recursive=True per cercare anche nelle sottocartelle
+        found_files = glob.glob(pattern, recursive=True)  # Cerca nelle sottocartelle
         if found_files:
             return found_files  # Restituisce una lista di file trovati
-    return None
 
+    # Se non trovato localmente, cerca su Nextcloud
+    nextcloud_client = connect_to_nextcloud()
+
+    # Cerca il file nella cartella di Nextcloud specificata
+    files = nextcloud_client.files.list(NEXTCLOUD_FOLDER)
+    for file_info in files:
+        if pdf_name in file_info.get_name() and file_info.get_name().endswith(".pdf"):
+            # Scarica il file su una cartella locale
+            local_file_path = os.path.join(local_directory, file_info.get_name())
+            nextcloud_client.files.download(file_info.get_path(), local_file_path)
+            return [local_file_path]  # Restituisce il percorso del file scaricato
+
+    return None
 
 async def search_pdf(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
