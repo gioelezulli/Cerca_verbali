@@ -21,9 +21,8 @@ def load_config():
 config = load_config()
 
 TELEGRAM_BOT_TOKEN = config['telegram']['bot_token']
-PDF_DIRECTORIES = config['directories']['pdf_directories']
 AUTHORIZED_USERS = config['authorization']['authorized_users']
-
+TEMP_DIR = config['temp_dir1']['cartella_temporanea']
 # Credenziali Nextcloud
 NEXTCLOUD_URL = config['nextcloud']['url']
 NEXTCLOUD_USERNAME = config['nextcloud']['username']
@@ -53,8 +52,7 @@ if __name__ == "__main__":
         files_to_download = []
 
         # Creare una cartella temporanea sul Desktop
-        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-        temp_dir = tempfile.mkdtemp(prefix="temp_nextcloud_files_", dir=desktop_path)
+        temp_dir = tempfile.mkdtemp(prefix="temp_nextcloud_files_", dir=TEMP_DIR)
 
         for folder in NEXTCLOUD_FOLDER:
             result = nc.files.find(["like", "name", f"%{partial_name}%.pdf"], path=folder)  # Cerca solo PDF
