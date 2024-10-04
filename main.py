@@ -1,9 +1,10 @@
-import glob
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import tomllib
 import os
-from nc_py_api import NextcloudApp
+import nc_py_api
+import tempfile
+from telegram.constants import ChatAction
 
 def load_config():
     # Definisce il percorso del file di configurazione
@@ -33,93 +34,98 @@ NEXTCLOUD_FOLDER = config['nextcloud']['folder']
 def is_authorized(user_id):
     return user_id in AUTHORIZED_USERS
 
+if __name__ == "__main__":
 
-async def start(update: Update, context: CallbackContext) -> None:
-    user_id = update.effective_user.id
+    # Replace these values with your Nextcloud URL, username, and password (app password)
+    nextcloud_url = NEXTCLOUD_URL
+    username = NEXTCLOUD_USERNAME
+    password = NEXTCLOUD_PASSWORD  # Use an app-specific password for security
 
-    if not is_authorized(user_id):
-        await update.message.reply_text("Non sei autorizzato a usare questo bot.")
-        return
-        # Usa 'await' per chiamare il metodo asincrono
-    await update.message.reply_text("Ciao! Inviami il nome del file PDF che stai cercando.")
+    # Initialize the NextCloud client
+    nc = nc_py_api.Nextcloud(nextcloud_url=nextcloud_url, nc_auth_user=username, nc_auth_pass=password)
 
-
-# Funzione per connettersi a Nextcloud
-def connect_to_nextcloud():
-    return NextcloudApp(base_url=NEXTCLOUD_URL, user=NEXTCLOUD_USERNAME, password=NEXTCLOUD_PASSWORD)
+    # Lista delle cartelle in cui concentrarsi per la ricerca
+    cartelle = NEXTCLOUD_FOLDER
 
 
-# Funzione per cercare e scaricare file PDF da Nextcloud
-def find_pdf(pdf_name):
-    local_directory = os.path.join(os.path.expanduser("~"), "Desktop", "PDF_Downloads")
+    # Funzione per cercare i file in Nextcloud e scaricarli
+    def search_and_download_files(partial_name):
+        files_to_download = []
 
-    # Creare la cartella sul Desktop se non esiste
-    os.makedirs(local_directory, exist_ok=True)
+        # Creare una cartella temporanea sul Desktop
+        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        temp_dir = tempfile.mkdtemp(prefix="temp_nextcloud_files_", dir=desktop_path)
 
-    # Cerca il file in tutte le directory locali specificate
-    for directory in PDF_DIRECTORIES:
-        pattern = os.path.join(directory, '**', f"*{pdf_name}*.pdf")
-        found_files = glob.glob(pattern, recursive=True)  # Cerca nelle sottocartelle
-        if found_files:
-            return found_files  # Restituisce una lista di file trovati
+        for folder in NEXTCLOUD_FOLDER:
+            result = nc.files.find(["like", "name", f"%{partial_name}%.pdf"], path=folder)  # Cerca solo PDF
+            for file in result:
+                file_name = file.name
+                file_path = file.user_path
+                local_file_path = os.path.join(temp_dir, file_name)
+                nc.files.download2stream(file_path, local_file_path)
+                files_to_download.append(local_file_path)  # Aggiungi il percorso locale del file alla lista
 
-    # Se non trovato localmente, cerca su Nextcloud
-    nextcloud_client = connect_to_nextcloud()
+        return files_to_download, temp_dir
 
-    # Cerca il file nella cartella di Nextcloud specificata
-    files = nextcloud_client.files.list(NEXTCLOUD_FOLDER)
-    for file_info in files:
-        if pdf_name in file_info.get_name() and file_info.get_name().endswith(".pdf"):
-            # Scarica il file su una cartella locale
-            local_file_path = os.path.join(local_directory, file_info.get_name())
-            nextcloud_client.files.download(file_info.get_path(), local_file_path)
-            return [local_file_path]  # Restituisce il percorso del file scaricato
-
-    return None
-
-async def search_pdf(update: Update, context: CallbackContext) -> None:
-    user_id = update.effective_user.id
-
-    if not is_authorized(user_id):
-        await update.message.reply_text("Non sei autorizzato a usare questo bot.")
-        return
-
-    # Ottieni il testo inviato dall'utente
-    query = update.message.text.strip()
-
-    # Cerca i PDF con il nome specificato
-    found_files = find_pdf(query)
-
-    if found_files:
-        for file in found_files:
-            # Manda il file trovato come documento (usa 'await')
-            await update.message.reply_document(document=open(file, 'rb'))
-    else:
-        # Usa 'await' per chiamare il metodo asincrono
-        await update.message.reply_text("Nessun file trovato con questo nome.")
-
-
-async def start_command(update: Update, context: CallbackContext):
-    await start(update, context)
-
-
-async def search_command(update: Update, context: CallbackContext):
-    await search_pdf(update, context)
-
-
-def main() -> None:
-    # Crea l'applicazione del bot
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Comando /start
-    application.add_handler(CommandHandler("start", start_command))
+    async def start_command(update: Update, context):
+        user_id = update.effective_user.id
+        if user_id not in AUTHORIZED_USERS:
+            await update.message.reply_text("Non sei autorizzato a usare questo bot.")
+            return
 
-    # Gestione del testo inviato dall'utente (ricerca PDF)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_command))
-
-    # Avvia il bot
-    application.run_polling()
+        await update.message.reply_text("Ciao! Inviami il nome del file PDF che stai cercando.")
 
 
-if __name__ == '__main__':
-    main()
+    # Funzione per la ricerca e invio dei file via bot
+    async def search_pdf(update: Update, context):
+        user_id = update.effective_user.id
+        if user_id not in AUTHORIZED_USERS:
+            await update.message.reply_text("Non sei autorizzato a usare questo bot.")
+            return
+
+        query = update.message.text.strip()
+        if not query:
+            await update.message.reply_text("Inserisci una chiave di ricerca.")
+            return
+
+        await update.message.reply_text(f"Cerco i file contenenti '{query}'...")
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
+        try:
+            # Cerca e scarica i file
+            files_found, temp_dir = search_and_download_files(query)
+
+            if not files_found:
+                await update.message.reply_text("Non ho trovato nessun file.")
+            else:
+                for file_path in files_found:
+                    with open(file_path, 'rb') as file:
+                        await update.message.reply_document(file)
+                await update.message.reply_text("File trovati e inviati con successo!")
+
+        except Exception as e:
+            await update.message.reply_text(f"Errore durante la ricerca o il download: {str(e)}")
+        finally:
+            # Pulisci la cartella temporanea
+            if os.path.exists(temp_dir):
+                for f in os.listdir(temp_dir):
+                    os.remove(os.path.join(temp_dir, f))
+                os.rmdir(temp_dir)
+
+
+    # Configura il bot
+    def main():
+        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+        # Comandi del bot
+        application.add_handler(CommandHandler("start", start_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_pdf))
+
+        # Avvia il bot
+        application.run_polling()
+
+
+    if __name__ == "__main__":
+        main()
