@@ -51,6 +51,15 @@ if __name__ == "__main__":
     def search_and_download_files(partial_name):
         files_to_download = []
 
+        # Verifica se la directory esiste, se no creala
+        if not os.path.exists(TEMP_DIR):
+            try:
+                os.makedirs(TEMP_DIR)
+                print(f"Creata la directory: {TEMP_DIR}")
+            except Exception as e:
+                print(f"Errore nella creazione della directory principale: {str(e)}")
+                return None, None
+
         # Crea una cartella temporanea nella directory specificata da TEMP_DIR
         try:
             temp_dir = tempfile.mkdtemp(prefix="temp_nextcloud_files_", dir=TEMP_DIR)
