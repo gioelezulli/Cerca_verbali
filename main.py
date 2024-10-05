@@ -51,8 +51,14 @@ if __name__ == "__main__":
     def search_and_download_files(partial_name):
         files_to_download = []
 
-        # Creare una cartella temporanea sul Desktop
-        temp_dir = tempfile.mkdtemp(prefix="temp_nextcloud_files_", dir=TEMP_DIR)
+        # Crea una cartella temporanea nella directory specificata da TEMP_DIR
+        try:
+            temp_dir = tempfile.mkdtemp(prefix="temp_nextcloud_files_", dir=TEMP_DIR)
+            print(f"Cartella temporanea creata: {temp_dir}")
+        except Exception as e:
+            print(f"Errore nella creazione della cartella temporanea: {str(e)}")
+            return None, None
+
 
         for folder in NEXTCLOUD_FOLDER:
             result = nc.files.find(["like", "name", f"%{partial_name}%.pdf"], path=folder)  # Cerca solo PDF
@@ -94,6 +100,11 @@ if __name__ == "__main__":
         try:
             # Cerca e scarica i file
             files_found, temp_dir = search_and_download_files(query)
+
+            # Controllo se la cartella temporanea è stata creata correttamente
+            if temp_dir is None:
+                await update.message.reply_text("Errore nella creazione della cartella temporanea. Riprova più tardi.")
+                return
 
             if not files_found:
                 await update.message.reply_text("Non ho trovato nessun file.")
