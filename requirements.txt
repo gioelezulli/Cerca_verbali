@@ -1,2 +1,2 @@
-python-telegram-bot
-nc_py_api
+python-telegram-bot==22.5
+nc_py_api==0.23.0
