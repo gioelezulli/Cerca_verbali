@@ -28,6 +28,8 @@ NEXTCLOUD_URL = config['nextcloud']['url']
 NEXTCLOUD_USERNAME = config['nextcloud']['username']
 NEXTCLOUD_PASSWORD = config['nextcloud']['password']
 NEXTCLOUD_FOLDER = config['nextcloud']['folder']
+EXCLUDED_KEYWORDS = config['nextcloud']['parole_escluse']
+
 
 # Funzione per controllare se l'utente è autorizzato
 def is_authorized(user_id):
@@ -45,7 +47,6 @@ if __name__ == "__main__":
 
     # Lista delle cartelle in cui concentrarsi per la ricerca
     cartelle = NEXTCLOUD_FOLDER
-
 
     # Funzione per cercare i file in Nextcloud e scaricarli
     def search_and_download_files(partial_name):
@@ -72,8 +73,11 @@ if __name__ == "__main__":
         for folder in NEXTCLOUD_FOLDER:
             result = nc.files.find(["like", "name", f"%{partial_name}%.pdf"], path=folder)  # Cerca solo PDF
             for file in result:
+                file_path = file.user_path  # lower() per confronto case-insensitive
+                if any(keyword in file_path.lower() for keyword in EXCLUDED_KEYWORDS):
+                    continue
+
                 file_name = file.name
-                file_path = file.user_path
                 local_file_path = os.path.join(temp_dir, file_name)
                 nc.files.download2stream(file_path, local_file_path)
                 files_to_download.append(local_file_path)  # Aggiungi il percorso locale del file alla lista
@@ -106,6 +110,7 @@ if __name__ == "__main__":
         await update.message.reply_text(f"Cerco i file contenenti '{query}'...")
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
+        temp_dir=None
         try:
             # Cerca e scarica i file
             files_found, temp_dir = search_and_download_files(query)
@@ -127,7 +132,7 @@ if __name__ == "__main__":
             await update.message.reply_text(f"Errore durante la ricerca o il download: {str(e)}")
         finally:
             # Pulisci la cartella temporanea
-            if os.path.exists(temp_dir):
+            if temp_dir and os.path.exists(temp_dir):
                 for f in os.listdir(temp_dir):
                     os.remove(os.path.join(temp_dir, f))
                 os.rmdir(temp_dir)
